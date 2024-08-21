@@ -164,6 +164,7 @@ _SQLITE_COLUMN_TYPES = _ColumnTypesForDialect(
 _COLUMN_TYPES_FOR_DIALECT: dict[SupportedDialect | None, _ColumnTypesForDialect] = {
     SupportedDialect.MYSQL: _MYSQL_COLUMN_TYPES,
     SupportedDialect.POSTGRESQL: _POSTGRESQL_COLUMN_TYPES,
+    SupportedDialect.DUCKDB: _POSTGRESQL_COLUMN_TYPES,
     SupportedDialect.SQLITE: _SQLITE_COLUMN_TYPES,
 }
 
@@ -544,13 +545,13 @@ def _modify_columns(
         table_name,
     )
 
-    if engine.dialect.name == SupportedDialect.POSTGRESQL:
+    if engine.dialect.name in [SupportedDialect.POSTGRESQL, SupportedDialect.DUCKDB]:
         columns_def = [
             "ALTER {column} TYPE {type}".format(
                 **dict(zip(["column", "type"], col_def.split(" ", 1), strict=False))
             )
             for col_def in columns_def
-        ]
+        ]    
     elif engine.dialect.name == "mssql":
         columns_def = [f"ALTER COLUMN {col_def}" for col_def in columns_def]
     else:
@@ -738,7 +739,7 @@ def _delete_foreign_key_violations(
     foreign_column: str,
 ) -> None:
     """Remove rows which violate the constraints."""
-    if engine.dialect.name not in (SupportedDialect.MYSQL, SupportedDialect.POSTGRESQL):
+    if engine.dialect.name not in (SupportedDialect.MYSQL, SupportedDialect.POSTGRESQL, SupportedDialect.DUCKDB):
         raise RuntimeError(
             f"_delete_foreign_key_violations not supported for {engine.dialect.name}"
         )
@@ -779,7 +780,7 @@ def _delete_foreign_key_violations(
                             "LIMIT 100000;"
                         )
                     )
-        elif engine.dialect.name == SupportedDialect.POSTGRESQL:
+        elif engine.dialect.name in [SupportedDialect.POSTGRESQL, SupportedDialect.DUCKDB]:
             while result is None or result.rowcount > 0:
                 with session_scope(session=session_maker()) as session:
                     # PostgreSQL does not support LIMIT in UPDATE clauses, so we
@@ -821,7 +822,7 @@ def _delete_foreign_key_violations(
                         "LIMIT 100000;"
                     )
                 )
-    elif engine.dialect.name == SupportedDialect.POSTGRESQL:
+    elif engine.dialect.name in [SupportedDialect.POSTGRESQL, SupportedDialect.DUCKDB]:
         while result is None or result.rowcount > 0:
             with session_scope(session=session_maker()) as session:
                 # PostgreSQL does not support LIMIT in DELETE clauses, so we
@@ -1131,6 +1132,7 @@ class _SchemaVersion20Migrator(_SchemaVersionMigrator, target_version=20):
         if self.engine.dialect.name in [
             SupportedDialect.MYSQL,
             SupportedDialect.POSTGRESQL,
+            SupportedDialect.DUCKDB
         ]:
             _modify_columns(
                 self.session_maker,
@@ -1812,7 +1814,7 @@ def _wipe_old_string_time_columns(
     # Wipe States.last_updated since its been replaced by States.last_updated_ts
     # Wipe States.last_changed since its been replaced by States.last_changed_ts
     #
-    if engine.dialect.name == SupportedDialect.SQLITE:
+    if engine.dialect.name in [SupportedDialect.SQLITE, SupportedDialect.DUCKDB]:
         session.execute(text("UPDATE events set time_fired=NULL;"))
         session.commit()
         session.execute(text("UPDATE states set last_updated=NULL, last_changed=NULL;"))
@@ -1945,6 +1947,30 @@ def _migrate_columns_to_timestamp(
                         " );"
                     )
                 )
+    elif engine.dialect.name == SupportedDialect.DUCKDB:
+        # With SQLite we do this in one go since it is faster
+        with session_scope(session=session_maker()) as session:
+            connection = session.connection()
+            connection.execute(
+                text(
+                    "UPDATE events SET "
+                    "time_fired_ts= "
+                    "(case when time_fired is NULL then 0 else EXTRACT(EPOCH FROM time_fired::timestamptz) end) "
+                    "WHERE event_id IN ( "
+                    "SELECT event_id FROM events where time_fired_ts is NULL"
+                    " );"
+                )
+            )
+            connection.execute(
+                text(
+                    "UPDATE states set last_updated_ts="
+                    "(case when last_updated is NULL then 0 else EXTRACT(EPOCH FROM last_updated::timestamptz) end), "
+                    "last_changed_ts=EXTRACT(EPOCH FROM last_changed::timestamptz) "
+                    "where state_id IN ( "
+                    "SELECT state_id FROM states where last_updated_ts is NULL "
+                    " );"
+                )
+            )
 
 
 @database_job_retry_wrapper("Migrate statistics columns to timestamp one by one", 3)
@@ -2067,6 +2093,20 @@ def _migrate_statistics_columns_to_timestamp(
                             ");"
                         )
                     )
+    elif engine.dialect.name == SupportedDialect.DUCKDB:
+        for table in STATISTICS_TABLES:
+            with session_scope(session=session_maker()) as session:
+                session.connection().execute(
+                    text(
+                        f"UPDATE {table} set start_ts=" 
+                        "(case when start is NULL then 0 else EXTRACT(EPOCH FROM start::timestamptz) end), "
+                        "created_ts=EXTRACT(EPOCH FROM created::timestamptz), "
+                        "last_reset_ts=EXTRACT(EPOCH FROM last_reset::timestamptz) "
+                        "where id IN ("
+                        f"SELECT id FROM {table} where start_ts is NULL"
+                        ");"
+                    )
+                )
 
 
 def _context_id_to_bytes(context_id: str | None) -> bytes | None:

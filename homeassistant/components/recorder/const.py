@@ -79,3 +79,4 @@ class SupportedDialect(StrEnum):
     SQLITE = "sqlite"
     MYSQL = "mysql"
     POSTGRESQL = "postgresql"
+    DUCKDB = "duckdb"
