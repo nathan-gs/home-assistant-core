@@ -95,6 +95,7 @@ RECOMMENDED_MIN_VERSION_MARIA_DB_108 = _simple_version("10.8.4")
 MARIADB_WITH_FIXED_IN_QUERIES_108 = _simple_version("10.8.4")
 MIN_VERSION_MYSQL = _simple_version("8.0.0")
 MIN_VERSION_PGSQL = _simple_version("12.0")
+MIN_VERSION_DUCKDB = _simple_version("0.9")
 MIN_VERSION_SQLITE = _simple_version("3.31.0")
 UPCOMING_MIN_VERSION_SQLITE = _simple_version("3.40.1")
 MIN_VERSION_SQLITE_MODERN_BIND_VARS = _simple_version("3.32.0")
@@ -352,7 +353,7 @@ def _fail_unsupported_dialect(dialect_name: str) -> NoReturn:
             "starting. Please migrate your database to a supported software"
         ),
         dialect_name,
-        "MariaDB ≥ 10.3, MySQL ≥ 8.0, PostgreSQL ≥ 12, SQLite ≥ 3.31.0",
+        "MariaDB ≥ 10.3, MySQL ≥ 8.0, PostgreSQL ≥ 12, SQLite ≥ 3.31.0, DuckDB > 0.9.0",
     )
     raise UnsupportedDialect
 
@@ -606,6 +607,17 @@ def setup_connection_for_dialect(
             if not version or version < MIN_VERSION_PGSQL:
                 _raise_if_version_unsupported(
                     version or version_string, "PostgreSQL", MIN_VERSION_PGSQL
+                )
+    elif dialect_name == SupportedDialect.DUCKDB:
+        max_bind_vars = DEFAULT_MAX_BIND_VARS
+        if first_connection:
+            # server_version_num was added in 2006
+            result = query_on_connection(dbapi_connection, "PRAGMA version")
+            version_string = result[0][0]
+            version = _extract_version_from_server_response(version_string)
+            if not version or version < MIN_VERSION_DUCKDB:
+                _raise_if_version_unsupported(
+                    version or version_string, "DuckDB", MIN_VERSION_DUCKDB
                 )
 
     else:
@@ -910,6 +922,13 @@ def filter_unique_constraint_integrity_error(
             ignore = True
         if (
             dialect_name == SupportedDialect.POSTGRESQL
+            and err.orig
+            and hasattr(err.orig, "pgcode")
+            and err.orig.pgcode == "23505"
+        ):
+            ignore = True
+        if (
+            dialect_name == SupportedDialect.DUCKDB
             and err.orig
             and hasattr(err.orig, "pgcode")
             and err.orig.pgcode == "23505"

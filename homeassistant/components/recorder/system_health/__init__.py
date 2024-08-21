@@ -15,11 +15,13 @@ from ..util import session_scope
 from .mysql import db_size_bytes as mysql_db_size_bytes
 from .postgresql import db_size_bytes as postgresql_db_size_bytes
 from .sqlite import db_size_bytes as sqlite_db_size_bytes
+from .duckdb import db_size_bytes as duckdb_db_size_bytes
 
 DIALECT_TO_GET_SIZE = {
     SupportedDialect.SQLITE: sqlite_db_size_bytes,
     SupportedDialect.MYSQL: mysql_db_size_bytes,
     SupportedDialect.POSTGRESQL: postgresql_db_size_bytes,
+    SupportedDialect.DUCKDB: duckdb_db_size_bytes
 }
 
 

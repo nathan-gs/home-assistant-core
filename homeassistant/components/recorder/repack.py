@@ -38,6 +38,16 @@ def repack_database(instance: Recorder) -> None:
             conn.execute(text("VACUUM"))
             conn.commit()
         return
+    
+    if dialect_name == SupportedDialect.DUCKDB:
+        _LOGGER.debug("Vacuuming & Checkpointing DB to free space")
+        with instance.engine.connect().execution_options(
+            isolation_level="AUTOCOMMIT"
+        ) as conn:
+            conn.execute(text("VACUUM ANALYZE"))
+            conn.execute(text("CHECKPOINT"))
+            conn.commit()
+        return
 
     # Optimize mysql / mariadb tables to free up space on disk
     if dialect_name == SupportedDialect.MYSQL:

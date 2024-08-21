@@ -150,10 +150,11 @@ def validate_db_schema_precision(
 ) -> set[str]:
     """Do some basic checks for common schema errors caused by manual migration."""
     schema_errors: set[str] = set()
-    # Wrong precision is only an issue for MySQL / MariaDB / PostgreSQL
+    # Wrong precision is only an issue for MySQL / MariaDB / PostgreSQL / DuckDB
     if instance.dialect_name not in (
         SupportedDialect.MYSQL,
         SupportedDialect.POSTGRESQL,
+        SupportedDialect.DUCKDB
     ):
         return schema_errors
     try:

@@ -204,10 +204,12 @@ UINT_32_TYPE = BigInteger().with_variant(
 JSON_VARIANT_CAST = Text().with_variant(
     postgresql.JSON(none_as_null=True),  # type: ignore[no-untyped-call]
     "postgresql",
+    "duckdb"
 )
 JSONB_VARIANT_CAST = Text().with_variant(
     postgresql.JSONB(none_as_null=True),  # type: ignore[no-untyped-call]
     "postgresql",
+    "duckdb"
 )
 DATETIME_TYPE = (
     DateTime(timezone=True)
@@ -218,7 +220,7 @@ DOUBLE_TYPE = (
     Float()
     .with_variant(mysql.DOUBLE(asdecimal=False), "mysql", "mariadb")  # type: ignore[no-untyped-call]
     .with_variant(oracle.DOUBLE_PRECISION(), "oracle")
-    .with_variant(postgresql.DOUBLE_PRECISION(), "postgresql")
+    .with_variant(postgresql.DOUBLE_PRECISION(), "postgresql", "duckdb")
 )
 UNUSED_LEGACY_COLUMN = Unused(0)
 UNUSED_LEGACY_DATETIME_COLUMN = UnusedDateTime(timezone=True)
@@ -375,7 +377,7 @@ class EventData(Base):
         event: Event, dialect: SupportedDialect | None
     ) -> bytes:
         """Create shared_data from an event."""
-        if dialect == SupportedDialect.POSTGRESQL:
+        if dialect in [SupportedDialect.POSTGRESQL, SupportedDialect.DUCKDB]:
             bytes_result = json_bytes_strip_null(event.data)
         bytes_result = json_bytes(event.data)
         if len(bytes_result) > MAX_EVENT_DATA_BYTES:
